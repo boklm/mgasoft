@@ -95,7 +95,7 @@ function tagrelease()
     then
 	svn mkdir -q -m "create tags directory for $softname" "$softdir/tags"
     fi
-    svn cp -q -m "tag $softname version $softrel" "$softdir/trunk" "$softdir/tags/$softrel"
+    svn cp -q -m "$softname version $softrel" "$softdir/trunk" "$softdir/tags/$softrel"
 }
 
 function gettar()
