@@ -1,0 +1,185 @@
+#!/bin/sh
+
+# To the extent possible under law, the author(s) have dedicated all
+# copyright and related and neighboring rights to this software to the
+# public domain worldwide.
+# This software is distributed without any warranty.
+
+# You should have received a copy of the CC0 Public Domain Dedication
+# along with this software.
+# If not, see <http://creativecommons.org/publicdomain/zero/1.0/>.
+
+. /etc/mgasoft.conf
+
+function check_softname()
+{
+    local softname="$1"
+    test -n "$softname" || return 1
+    echo "$softname" | fgrep -q .. && return 1
+    echo "$softname" | fgrep -q / && return 1
+    return 0
+}
+
+function check_softrel()
+{
+    check_softname $@
+}
+
+function usage()
+{
+    local cmd="$1"
+    local exitval=$2
+    case "$cmd" in
+	tagrelease)
+	    cat <<EOF
+Usage: mgasoft tag [name] [version]
+
+This command tag a version from trunk.
+EOF
+            ;;
+	gettar)
+	    cat <<EOF
+Usage: mgasoft tar [name] [version]
+
+This command will create a tarball.
+EOF
+            ;;
+	publish)
+	    cat <<EOF
+Usage: mgasoft publish [name] [version]
+
+This command will publish a version on mageia mirrors.
+EOF
+            ;;
+	*)
+	    cat <<EOF
+Usage: mgasoft [command] [args]
+
+Available commands :
+   tag
+   publish
+   tar
+
+For more infos about a command, use :
+   mgasoft [command] --help
+EOF
+        ;;
+esac
+    exit $exitval
+}
+
+function tagrelease()
+{
+    [ "$1" == "--help" ] && usage tagrelease 0
+    [ $# -ne 2 ] && usage tagrelease 1
+    local softname="$1"
+    local softrel="$2"
+    check_softname "$softname" || exit 1
+    check_softrel "$softrel" || exit 1
+
+    local softdir="$svn_soft/$softname"
+    
+    if ! svn ls "$softdir/trunk" > /dev/null 2>&1
+    then
+	echo "error: $softname does not exists" >&2
+	exit 2
+    fi
+
+    if svn ls "$softdir/tags/$softrel" > /dev/null 2>&1
+    then
+	echo "error: $softname version $softrel already exists" >&2
+	exit 2
+    fi
+
+    if ! svn ls "$softdir/tags" > /dev/null 2>&1
+    then
+	svn mkdir -q -m "create tags directory for $softname" "$softdir/tags"
+    fi
+    svn cp -q -m "tag $softname version $softrel" "$softdir/trunk" "$softdir/tags/$softrel"
+}
+
+function gettar()
+{
+    [ "$1" == "--help" ] && usage gettar 0
+    [ $# -ne 2 ] && usage gettar 1
+    local softname="$1"
+    local softrel="$2"
+    check_softname "$softname" || exit 1
+    check_softrel "$softrel" || exit 1
+
+    local oldpwd=$PWD
+    local tmpdir=$(mktemp -d)
+    cd $tmpdir
+    if [ "$softrel" == "trunk" ]
+    then
+	local svnpath="$anonsvn_soft/$softname/trunk"
+    else
+	local svnpath="$anonsvn_soft/$softname/tags/$softrel"
+    fi
+    if ! svn export -q "$svnpath" "$softname-$softrel"
+    then
+	echo "Error exporting $softname-$softrel" >&2
+	rm -Rf "$tmpdir"
+	exit 2
+    fi
+    tar cvJf "$oldpwd/$softname-$softrel.tar.xz" "$softname-$softrel"
+    cd "$oldpwd"
+    rm -Rf "$tmpdir"
+    echo "Created $softname-$softrel.tar.xz"
+}
+
+function publishrelease()
+{
+    [ "$1" == "--help" ] && usage publish 0
+    [ $# -ne 2 ] && usage publish 1
+    local softname="$1"
+    local softrel="$2"
+    check_softname "$softname" || exit 1
+    check_softrel "$softrel" || exit 1
+
+    local svnpath="$svn_soft/$softname/tags/$softrel"
+    if ! svn ls "$svnpath" > /dev/null 2>&1
+    then
+	echo "error: $softname version $softrel does not exist" >&2
+	exit 2
+    fi
+
+    local pubdir="$svn_soft_publish/$softname"
+    if svn ls "$pubdir/$softrel" > /dev/null 2>&1
+    then
+	echo "$softname version $softrel already published" >&2
+	exit 2
+    fi
+    if ! svn ls "$pubdir" > /dev/null 2>&1
+    then
+	svn mkdir -q -m "create directory for $softname" "$pubdir"
+    fi
+    local tmpdir=$(mktemp -d)
+    pushd "$tmpdir" > /dev/null
+    svn co -q "$pubdir"
+    cd "$softname"
+    touch "$softrel"
+    svn add -q "$softrel"
+    svn ci -q -m "publish $softname version $softrel"
+    popd > /dev/null
+    rm -Rf "$tmpdir"
+}
+
+case "$1" in
+    tag)
+	shift
+	tagrelease $@
+	;;
+    tar)
+	shift
+	gettar $@
+	;;
+    publish)
+	shift
+	publishrelease $@
+	;;
+    *)
+	usage '' 1
+	;;
+esac
+

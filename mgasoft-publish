@@ -1,0 +1,67 @@
+#!/bin/sh
+
+# To the extent possible under law, the author(s) have dedicated all
+# copyright and related and neighboring rights to this software to the
+# public domain worldwide.
+# This software is distributed without any warranty.
+
+# You should have received a copy of the CC0 Public Domain Dedication
+# along with this software.
+# If not, see <http://creativecommons.org/publicdomain/zero/1.0/>.
+
+. /etc/mgasoft.conf
+
+function check_softname()
+{
+    local softname="$1"
+    test -n "$softname" || return 1
+    echo "$softname" | fgrep -q .. && return 1
+    echo "$softname" | fgrep -q / && return 1
+    return 0
+}
+
+function check_softrel()
+{
+    check_softname $@
+}
+
+function update_infos()
+{
+    pushd $pubinfodir > /dev/null || exit 3
+    svn up -q
+    popd > /dev/null || exit 3
+}
+
+function publish()
+{
+    local softname="$1"
+    local softrel="$2"
+    check_softname "$softname" || return 1
+    check_softrel "$softrel" || return 1
+    pushd "$pubmirrordir/$softname" > /dev/null || exit 3
+    mgasoft tar "$softname" "$softrel"
+    #TODO: sign file
+    #TODO: upload to binrepo
+    #TODO: update sha1sum in pubinfodir
+    popd > /dev/null || exit 3
+}
+
+update_infos
+pushd "$pubinfodir" > /dev/null
+for softname in *
+do
+    pushd "$softname" > /dev/null || exit 3
+    for rel in *
+    do
+	if ! [ -d "$pubmirrordir/$softname" ]
+	then
+	    mkdir "$pubmirrordir/$softname"
+	fi
+	if ! [ -f "$pubmirrordir/$softname/$softname-$rel.tar.xz" ]
+	then
+	    publish "$softname" "$rel"
+	fi
+    done
+    popd > /dev/null || exit 3
+done
+popd > /dev/null
